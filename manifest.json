@@ -1,0 +1,14 @@
+{
+  "schemaVersion": 1,
+  "id": "andreconde.quick-look",
+  "name": "Quick Look",
+  "version": "0.2.0",
+  "author": "André Conde",
+  "license": "MIT",
+  "description": "macOS-style file preview: select a file in Files, press Space, and see it rendered — images, PDF pages, media stills, code, markdown, folders and archives.",
+  "kinds": ["overlay"],
+  "entryPoints": {
+    "overlay": "Overlay.qml"
+  },
+  "keepLoaded": true
+}

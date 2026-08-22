@@ -1,0 +1,219 @@
+#!/usr/bin/env python3
+"""Expose Omarchy Quick Look as the GNOME file previewer.
+
+Nautilus does not let extensions bind keys. What it does instead is D-Bus
+activate the well-known name `org.gnome.NautilusPreviewer` when the user
+presses Space on a selection, and call ShowFile on it. Owning that name is
+therefore the supported way to make Space open our own previewer instead of
+the stock one (sushi).
+
+Both the current `org.gnome.NautilusPreviewer2` interface and the older
+`org.gnome.NautilusPreviewer` interface are exported, because Nautilus falls
+back to v1 when the v2 proxy cannot be created.
+
+Removing ~/.local/share/dbus-1/services/org.gnome.NautilusPreviewer.service
+hands the Space key straight back to sushi.
+"""
+
+import subprocess
+import sys
+import urllib.parse
+
+import gi
+
+gi.require_version("Gio", "2.0")
+from gi.repository import Gio, GLib  # noqa: E402
+
+BUS_NAME = "org.gnome.NautilusPreviewer"
+OBJECT_PATH = "/org/gnome/NautilusPreviewer"
+IPC_TARGET = "andreconde.quick-look"
+
+# Nothing has asked us to preview anything for this long, so the service exits
+# and lets D-Bus activate it again on the next Space press.
+IDLE_TIMEOUT_SECONDS = 900
+
+NODE_XML = """
+<node>
+  <interface name="org.gnome.NautilusPreviewer2">
+    <method name="ShowFile">
+      <arg type="s" name="uri" direction="in"/>
+      <arg type="s" name="windowHandle" direction="in"/>
+      <arg type="b" name="closeIfAlreadyShown" direction="in"/>
+      <arg type="s" name="activationToken" direction="in"/>
+    </method>
+    <method name="Close"/>
+    <signal name="SelectionEvent">
+      <arg type="q" name="direction"/>
+    </signal>
+    <property type="s" name="ParentHandle" access="read"/>
+    <property type="b" name="Visible" access="read"/>
+  </interface>
+  <interface name="org.gnome.NautilusPreviewer">
+    <method name="ShowFile">
+      <arg type="s" name="uri" direction="in"/>
+      <arg type="i" name="xid" direction="in"/>
+      <arg type="b" name="closeIfAlreadyShown" direction="in"/>
+    </method>
+    <method name="Close"/>
+    <property type="b" name="Visible" access="read"/>
+  </interface>
+</node>
+"""
+
+
+def uri_to_path(uri):
+    """Return a local filesystem path, or None for anything not on disk."""
+    text = str(uri or "")
+    if text.startswith("/"):
+        return text
+    parsed = urllib.parse.urlparse(text)
+    if parsed.scheme != "file":
+        return None
+    return urllib.parse.unquote(parsed.path) or None
+
+
+def omarchy_shell(*args):
+    """Call the shell's IPC and return stdout, or None when it fails."""
+    try:
+        proc = subprocess.run(
+            ["omarchy-shell", *args],
+            capture_output=True, timeout=15, check=False,
+        )
+    except (OSError, subprocess.SubprocessError):
+        return None
+    if proc.returncode != 0:
+        return None
+    return proc.stdout.decode("utf-8", "replace").strip()
+
+
+class Previewer:
+    def __init__(self, loop):
+        self.loop = loop
+        self.parent_handle = ""
+        self.current_path = None
+        self._idle_source = None
+        self._reset_idle()
+
+    # -- lifetime ---------------------------------------------------------
+
+    def _reset_idle(self):
+        if self._idle_source is not None:
+            GLib.source_remove(self._idle_source)
+        self._idle_source = GLib.timeout_add_seconds(
+            IDLE_TIMEOUT_SECONDS, self._on_idle,
+        )
+
+    def _on_idle(self):
+        self._idle_source = None
+        if not self.visible():
+            self.loop.quit()
+            return False
+        self._reset_idle()
+        return False
+
+    # -- state ------------------------------------------------------------
+
+    def visible(self):
+        return omarchy_shell(IPC_TARGET, "isOpen") == "true"
+
+    # -- actions ----------------------------------------------------------
+
+    def show_file(self, uri, close_if_already_shown, parent_handle=""):
+        self._reset_idle()
+        self.parent_handle = str(parent_handle or "")
+
+        path = uri_to_path(uri)
+        if path is None:
+            # Remote or virtual location: there is no local file to read.
+            return
+
+        if close_if_already_shown and self.current_path == path and self.visible():
+            self.close()
+            return
+
+        self.current_path = path
+        if omarchy_shell(IPC_TARGET, "show", path) is None:
+            # The overlay may not be mounted yet; summon() loads it first.
+            omarchy_shell(
+                "shell", "summon", IPC_TARGET,
+                '{"path": %s}' % _json_string(path),
+            )
+
+    def close(self):
+        self._reset_idle()
+        self.current_path = None
+        omarchy_shell(IPC_TARGET, "dismiss")
+
+
+def _json_string(value):
+    """Minimal JSON string encoder (avoids importing json for one call)."""
+    escaped = str(value).replace("\\", "\\\\").replace('"', '\\"')
+    return '"%s"' % escaped
+
+
+def make_handlers(previewer):
+    def handle_call(_conn, _sender, _path, interface, method, params, invocation):
+        if method == "ShowFile":
+            if interface == "org.gnome.NautilusPreviewer2":
+                uri, window_handle, close_if_shown, _token = params.unpack()
+                previewer.show_file(uri, close_if_shown, window_handle)
+            else:
+                uri, _xid, close_if_shown = params.unpack()
+                previewer.show_file(uri, close_if_shown)
+            invocation.return_value(None)
+        elif method == "Close":
+            previewer.close()
+            invocation.return_value(None)
+        else:
+            invocation.return_error_literal(
+                Gio.dbus_error_quark(), Gio.DBusError.UNKNOWN_METHOD,
+                "Unknown method %s" % method,
+            )
+
+    def handle_get(_conn, _sender, _path, _interface, prop):
+        if prop == "Visible":
+            return GLib.Variant("b", previewer.visible())
+        if prop == "ParentHandle":
+            return GLib.Variant("s", previewer.parent_handle)
+        return None
+
+    return handle_call, handle_get
+
+
+def main():
+    loop = GLib.MainLoop()
+    previewer = Previewer(loop)
+    handle_call, handle_get = make_handlers(previewer)
+
+    node = Gio.DBusNodeInfo.new_for_xml(NODE_XML)
+    registered = []
+
+    def on_bus_acquired(connection, _name):
+        for interface in node.interfaces:
+            registered.append(connection.register_object(
+                OBJECT_PATH, interface, handle_call, handle_get, None,
+            ))
+
+    def on_name_lost(_connection, _name):
+        # Something else (most likely sushi) holds the name. Exiting keeps the
+        # user's file manager working rather than fighting over the bus.
+        sys.stderr.write(
+            "quick-look-previewer: could not own %s; another previewer is running\n" % BUS_NAME
+        )
+        loop.quit()
+
+    Gio.bus_own_name(
+        Gio.BusType.SESSION, BUS_NAME,
+        Gio.BusNameOwnerFlags.NONE,
+        on_bus_acquired, None, on_name_lost,
+    )
+
+    try:
+        loop.run()
+    except KeyboardInterrupt:
+        pass
+    return 0
+
+
+if __name__ == "__main__":
+    sys.exit(main())

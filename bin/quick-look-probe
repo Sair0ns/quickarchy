@@ -1,0 +1,402 @@
+#!/usr/bin/env python3
+"""Inspect one file and describe how Quick Look should present it.
+
+Prints a single JSON object on stdout. The QML overlay only renders what it
+finds here, so every format decision (which tool renders a PDF page, how a
+video thumbnail is produced, how much text is worth reading) lives in this
+script and can be exercised straight from a shell.
+
+Rendered artefacts (PDF pages, video stills, embedded cover art) are written
+into a cache directory keyed by the source path and mtime, so reopening the
+same file is instant and a changed file re-renders.
+"""
+
+import hashlib
+import json
+import os
+import shutil
+import subprocess
+import sys
+import time
+
+CACHE_ROOT = os.path.join(
+    os.environ.get("XDG_CACHE_HOME", os.path.expanduser("~/.cache")),
+    "omarchy", "quick-look",
+)
+
+TEXT_BYTE_LIMIT = 256 * 1024
+TEXT_LINE_LIMIT = 400
+DIR_ENTRY_LIMIT = 300
+PDF_PAGE_LIMIT = 8
+ARCHIVE_ENTRY_LIMIT = 200
+
+MARKDOWN_EXT = {".md", ".markdown", ".mdown", ".mkd"}
+# Extensions file(1) tends to report as text/plain but which are really code.
+CODE_EXT = {
+    ".sh", ".bash", ".zsh", ".fish", ".py", ".rb", ".pl", ".lua", ".js", ".ts",
+    ".jsx", ".tsx", ".c", ".h", ".cpp", ".hpp", ".cs", ".go", ".rs", ".java",
+    ".kt", ".swift", ".php", ".sql", ".qml", ".json", ".yaml", ".yml", ".toml",
+    ".ini", ".conf", ".cfg", ".xml", ".html", ".css", ".scss", ".vim", ".nix",
+}
+
+
+def which(name):
+    return shutil.which(name) is not None
+
+
+def run(argv, timeout=20):
+    """Run a helper and return stdout, or None if it is missing or fails."""
+    try:
+        proc = subprocess.run(
+            argv, capture_output=True, timeout=timeout, check=False,
+        )
+    except (OSError, subprocess.SubprocessError):
+        return None
+    if proc.returncode != 0:
+        return None
+    return proc.stdout.decode("utf-8", "replace")
+
+
+def human_size(size):
+    step = 1024.0
+    units = ["B", "KB", "MB", "GB", "TB"]
+    value = float(size)
+    for unit in units:
+        if value < step or unit == units[-1]:
+            return ("%d %s" % (value, unit)) if unit == "B" else ("%.1f %s" % (value, unit))
+        value /= step
+    return "%d B" % size
+
+
+def cache_dir_for(path, stat_result):
+    key = "%s:%s:%s" % (os.path.realpath(path), stat_result.st_mtime_ns, stat_result.st_size)
+    digest = hashlib.sha1(key.encode("utf-8", "replace")).hexdigest()[:16]
+    target = os.path.join(CACHE_ROOT, digest)
+    os.makedirs(target, exist_ok=True)
+    return target
+
+
+def prune_cache(keep_days=7, max_entries=400):
+    """Keep the cache from growing without bound; failures here are ignored."""
+    try:
+        entries = [
+            os.path.join(CACHE_ROOT, name) for name in os.listdir(CACHE_ROOT)
+        ]
+    except OSError:
+        return
+    entries = [e for e in entries if os.path.isdir(e)]
+    cutoff = time.time() - keep_days * 86400
+    entries.sort(key=lambda p: os.path.getmtime(p) if os.path.exists(p) else 0)
+    for index, entry in enumerate(entries):
+        stale = os.path.getmtime(entry) < cutoff if os.path.exists(entry) else True
+        overflow = len(entries) - index > max_entries
+        if stale or overflow:
+            shutil.rmtree(entry, ignore_errors=True)
+
+
+def mime_of(path):
+    out = run(["file", "--mime-type", "-b", path], timeout=10)
+    return (out or "application/octet-stream").strip()
+
+
+def read_text(path):
+    try:
+        with open(path, "rb") as handle:
+            raw = handle.read(TEXT_BYTE_LIMIT + 1)
+    except OSError as exc:
+        return "Could not read file: %s" % exc, False
+    truncated = len(raw) > TEXT_BYTE_LIMIT
+    text = raw[:TEXT_BYTE_LIMIT].decode("utf-8", "replace")
+    lines = text.splitlines()
+    if len(lines) > TEXT_LINE_LIMIT:
+        lines = lines[:TEXT_LINE_LIMIT]
+        truncated = True
+    return "\n".join(lines), truncated
+
+
+def image_meta(path):
+    meta = []
+    out = run(["identify", "-format", "%wx%h|%m|%[colorspace]", path + "[0]"], timeout=15)
+    if out:
+        parts = out.strip().split("|")
+        if parts and parts[0]:
+            meta.append(parts[0].replace("x", "×"))
+        if len(parts) > 1 and parts[1]:
+            meta.append(parts[1])
+        if len(parts) > 2 and parts[2]:
+            meta.append(parts[2])
+    return meta
+
+
+def pdf_preview(path, cache):
+    meta = []
+    info = run(["pdfinfo", path], timeout=15)
+    pages = 0
+    if info:
+        for line in info.splitlines():
+            if line.startswith("Pages:"):
+                try:
+                    pages = int(line.split(":", 1)[1].strip())
+                except ValueError:
+                    pages = 0
+                meta.append("%d pages" % pages)
+            elif line.startswith("Title:"):
+                title = line.split(":", 1)[1].strip()
+                if title:
+                    meta.append(title)
+            elif line.startswith("Page size:"):
+                meta.append(line.split(":", 1)[1].strip())
+
+    images = []
+    if which("pdftoppm"):
+        prefix = os.path.join(cache, "page")
+        if not any(name.startswith("page") for name in os.listdir(cache)):
+            run([
+                "pdftoppm", "-png", "-r", "110",
+                "-f", "1", "-l", str(PDF_PAGE_LIMIT), path, prefix,
+            ], timeout=60)
+        images = sorted(
+            os.path.join(cache, name)
+            for name in os.listdir(cache)
+            if name.startswith("page") and name.endswith(".png")
+        )
+
+    text = ""
+    if not images and which("pdftotext"):
+        text = run(["pdftotext", "-l", "10", "-nopgbrk", path, "-"], timeout=30) or ""
+
+    if pages > PDF_PAGE_LIMIT and images:
+        meta.append("showing first %d" % len(images))
+    return meta, images, text
+
+
+def ffprobe_json(path):
+    out = run([
+        "ffprobe", "-v", "quiet", "-print_format", "json",
+        "-show_format", "-show_streams", path,
+    ], timeout=25)
+    if not out:
+        return {}
+    try:
+        return json.loads(out)
+    except ValueError:
+        return {}
+
+
+def duration_text(seconds):
+    try:
+        total = int(float(seconds))
+    except (TypeError, ValueError):
+        return None
+    hours, remainder = divmod(total, 3600)
+    minutes, secs = divmod(remainder, 60)
+    if hours:
+        return "%d:%02d:%02d" % (hours, minutes, secs)
+    return "%d:%02d" % (minutes, secs)
+
+
+def video_preview(path, cache):
+    meta = []
+    probe = ffprobe_json(path)
+    for stream in probe.get("streams", []):
+        if stream.get("codec_type") == "video":
+            width, height = stream.get("width"), stream.get("height")
+            if width and height:
+                meta.append("%s×%s" % (width, height))
+            if stream.get("codec_name"):
+                meta.append(stream["codec_name"])
+            break
+    spent = duration_text(probe.get("format", {}).get("duration"))
+    if spent:
+        meta.insert(0, spent)
+
+    images = []
+    if which("ffmpegthumbnailer"):
+        thumb = os.path.join(cache, "thumb.png")
+        if not os.path.exists(thumb):
+            run(["ffmpegthumbnailer", "-i", path, "-o", thumb, "-s", "900", "-q", "8"], timeout=40)
+        if os.path.exists(thumb):
+            images.append(thumb)
+    return meta, images
+
+
+def audio_preview(path, cache):
+    meta = []
+    probe = ffprobe_json(path)
+    fmt = probe.get("format", {})
+    tags = {k.lower(): v for k, v in (fmt.get("tags") or {}).items()}
+    for key in ("title", "artist", "album"):
+        if tags.get(key):
+            meta.append(tags[key])
+    spent = duration_text(fmt.get("duration"))
+    if spent:
+        meta.append(spent)
+    for stream in probe.get("streams", []):
+        if stream.get("codec_type") == "audio" and stream.get("codec_name"):
+            meta.append(stream["codec_name"])
+            break
+
+    images = []
+    if which("ffmpeg"):
+        cover = os.path.join(cache, "cover.jpg")
+        if not os.path.exists(cover):
+            run(["ffmpeg", "-v", "quiet", "-y", "-i", path, "-an", "-frames:v", "1", cover], timeout=25)
+        if os.path.exists(cover) and os.path.getsize(cover) > 0:
+            images.append(cover)
+    return meta, images
+
+
+def directory_preview(path):
+    entries = []
+    try:
+        names = sorted(os.listdir(path), key=lambda n: (not os.path.isdir(os.path.join(path, n)), n.lower()))
+    except OSError as exc:
+        return [], ["Could not read directory: %s" % exc]
+    total = len(names)
+    for name in names[:DIR_ENTRY_LIMIT]:
+        full = os.path.join(path, name)
+        entries.append({
+            "name": name,
+            "directory": os.path.isdir(full),
+        })
+    meta = ["%d item%s" % (total, "" if total == 1 else "s")]
+    if total > DIR_ENTRY_LIMIT:
+        meta.append("showing first %d" % DIR_ENTRY_LIMIT)
+    return entries, meta
+
+
+def archive_preview(path):
+    out = run(["bsdtar", "-tf", path], timeout=30)
+    if out is None:
+        return [], []
+    names = [line for line in out.splitlines() if line.strip()]
+    entries = [{"name": n, "directory": n.endswith("/")} for n in names[:ARCHIVE_ENTRY_LIMIT]]
+    meta = ["%d entries" % len(names)]
+    if len(names) > ARCHIVE_ENTRY_LIMIT:
+        meta.append("showing first %d" % ARCHIVE_ENTRY_LIMIT)
+    return entries, meta
+
+
+def classify(path, mime, extension):
+    if os.path.isdir(path):
+        return "directory"
+    if mime.startswith("image/"):
+        return "image"
+    if mime == "application/pdf":
+        return "pdf"
+    if mime.startswith("video/"):
+        return "video"
+    if mime.startswith("audio/"):
+        return "audio"
+    if extension in MARKDOWN_EXT:
+        return "markdown"
+    if mime in ("application/zip", "application/x-tar", "application/gzip",
+                "application/x-xz", "application/x-7z-compressed",
+                "application/x-bzip2", "application/zstd"):
+        return "archive"
+    if mime.startswith("text/") or extension in CODE_EXT:
+        return "text"
+    if mime in ("application/json", "application/xml", "application/javascript",
+                "application/x-shellscript", "application/toml"):
+        return "text"
+    return "binary"
+
+
+def build(path):
+    path = os.path.abspath(os.path.expanduser(path))
+    result = {
+        "path": path,
+        "name": os.path.basename(path.rstrip("/")) or path,
+        "kind": "missing",
+        "mime": "",
+        "size": 0,
+        "sizeHuman": "",
+        "modified": "",
+        "meta": [],
+        "text": "",
+        "truncated": False,
+        "images": [],
+        "entries": [],
+        "error": "",
+    }
+
+    if not os.path.exists(path):
+        result["error"] = "File not found."
+        return result
+
+    try:
+        stat_result = os.stat(path)
+    except OSError as exc:
+        result["error"] = "Could not stat file: %s" % exc
+        return result
+
+    result["size"] = stat_result.st_size
+    result["sizeHuman"] = human_size(stat_result.st_size)
+    result["modified"] = time.strftime("%Y-%m-%d %H:%M", time.localtime(stat_result.st_mtime))
+
+    if os.path.isdir(path):
+        result["kind"] = "directory"
+        result["mime"] = "inode/directory"
+        entries, meta = directory_preview(path)
+        result["entries"] = entries
+        result["meta"] = meta
+        result["sizeHuman"] = ""
+        return result
+
+    mime = mime_of(path)
+    extension = os.path.splitext(path)[1].lower()
+    kind = classify(path, mime, extension)
+    result["mime"] = mime
+    result["kind"] = kind
+
+    if not os.access(path, os.R_OK):
+        result["error"] = "No permission to read this file."
+        return result
+
+    cache = cache_dir_for(path, stat_result)
+    prune_cache()
+
+    if kind == "image":
+        result["meta"] = image_meta(path)
+        result["images"] = [path]
+    elif kind == "pdf":
+        meta, images, text = pdf_preview(path, cache)
+        result["meta"], result["images"], result["text"] = meta, images, text
+    elif kind == "video":
+        result["meta"], result["images"] = video_preview(path, cache)
+    elif kind == "audio":
+        result["meta"], result["images"] = audio_preview(path, cache)
+    elif kind in ("text", "markdown"):
+        text, truncated = read_text(path)
+        result["text"] = text
+        result["truncated"] = truncated
+        result["meta"] = [mime]
+    elif kind == "archive":
+        entries, meta = archive_preview(path)
+        result["entries"] = entries
+        result["meta"] = meta
+    else:
+        result["meta"] = [mime]
+        described = run(["file", "-b", path], timeout=10)
+        if described:
+            result["meta"].append(described.strip())
+
+    return result
+
+
+def main():
+    if len(sys.argv) < 2:
+        print(json.dumps({"kind": "missing", "error": "No path given."}))
+        return 1
+    try:
+        payload = build(sys.argv[1])
+    except Exception as exc:  # never let the overlay hang on a probe crash
+        payload = {"kind": "missing", "error": "Preview failed: %s" % exc,
+                   "name": os.path.basename(sys.argv[1]), "path": sys.argv[1],
+                   "meta": [], "images": [], "entries": [], "text": ""}
+    print(json.dumps(payload))
+    return 0
+
+
+if __name__ == "__main__":
+    sys.exit(main())
