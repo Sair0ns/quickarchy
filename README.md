@@ -42,7 +42,7 @@ Inside the preview: `Space`, `Esc` or `Q` dismiss, `Enter` opens the file in its
 ## Install
 
 ```bash
-omarchy plugin add <repo-url> --enable --yes
+omarchy plugin add https://github.com/andreconde21/omarchy-quick-look.git --enable --yes
 ```
 
 Then register the Space-key bridge:
