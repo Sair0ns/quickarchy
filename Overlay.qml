@@ -48,6 +48,11 @@ Item {
     return "'" + String(v).replace(/'/g, "'\\''") + "'"
   }
 
+  // Allowlist rather than denylist: anything not plainly a web link is ignored.
+  function isSafeLink(link) {
+    return /^(https?|mailto):/i.test(String(link || "").trim())
+  }
+
   // Entry point used by `omarchy-shell shell summon andreconde.quick-look`.
   function open(payload) {
     var args = {}
@@ -404,7 +409,11 @@ Item {
                   font.family: Style.font.family
                   font.pixelSize: Style.font.bodySmall
                   wrapMode: Text.Wrap
+                  // Only hand well-known web schemes to xdg-open. A document is
+                  // untrusted input, and xdg-open will happily dispatch file://
+                  // or any registered custom scheme to a local handler.
                   onLinkActivated: function(link) {
+                    if (!root.isSafeLink(link)) return
                     Quickshell.execDetached(["sh", "-lc", "xdg-open " + root.shellQuote(link) + " >/dev/null 2>&1 &"])
                   }
                 }
