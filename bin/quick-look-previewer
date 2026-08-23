@@ -15,6 +15,7 @@ Removing ~/.local/share/dbus-1/services/org.gnome.NautilusPreviewer.service
 hands the Space key straight back to sushi.
 """
 
+import json
 import subprocess
 import sys
 import urllib.parse
@@ -134,21 +135,12 @@ class Previewer:
         self.current_path = path
         if omarchy_shell(IPC_TARGET, "show", path) is None:
             # The overlay may not be mounted yet; summon() loads it first.
-            omarchy_shell(
-                "shell", "summon", IPC_TARGET,
-                '{"path": %s}' % _json_string(path),
-            )
+            omarchy_shell("shell", "summon", IPC_TARGET, json.dumps({"path": path}))
 
     def close(self):
         self._reset_idle()
         self.current_path = None
         omarchy_shell(IPC_TARGET, "dismiss")
-
-
-def _json_string(value):
-    """Minimal JSON string encoder (avoids importing json for one call)."""
-    escaped = str(value).replace("\\", "\\\\").replace('"', '\\"')
-    return '"%s"' % escaped
 
 
 def make_handlers(previewer):

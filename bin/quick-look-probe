@@ -216,6 +216,10 @@ def bounded_image(path, cache):
     Handing back a file that was just classified as too large to decode would
     defeat the check entirely.
     """
+    if not which("identify"):
+        # Without ImageMagick the ceiling cannot be checked at all. Say so
+        # plainly rather than reporting every image as "too large".
+        return None
     size = image_dimensions(path)
     if not size:
         return None
@@ -239,7 +243,11 @@ def bounded_image(path, cache):
 
 def image_meta(path):
     meta = []
-    out = run(["identify", "-format", "%wx%h|%m|%[colorspace]", path + "[0]"], timeout=15)
+    # -ping and the resource ceiling matter here for the same reason they do in
+    # image_dimensions(): build() calls image_meta() *first*, so without them a
+    # decompression bomb is fully decoded before the guard ever runs.
+    out = run(["identify"] + IM_LIMITS + ["-ping", "-format", "%wx%h|%m|%[colorspace]",
+                                          path + "[0]"], timeout=15)
     if out:
         parts = out.strip().split("|")
         if parts and parts[0]:
@@ -391,12 +399,16 @@ def directory_preview(path):
 
 
 def archive_preview(path):
+    if not which("bsdtar"):
+        return [], ["bsdtar (libarchive) not installed"]
     out = run(["bsdtar", "-tf", path], timeout=30)
     if out is None:
-        return [], []
+        return [], ["could not read archive"]
     names = [line for line in out.splitlines() if line.strip()]
     entries = [{"name": n, "directory": n.endswith("/")} for n in names[:ARCHIVE_ENTRY_LIMIT]]
     meta = ["%d entries" % len(names)]
+    if not entries:
+        meta.append("could not read archive")
     if len(names) > ARCHIVE_ENTRY_LIMIT:
         meta.append("showing first %d" % ARCHIVE_ENTRY_LIMIT)
     return entries, meta
@@ -488,8 +500,12 @@ def build(path):
             # Refused rather than rendered: say so instead of quietly showing
             # nothing, and never fall back to the original.
             result["images"] = []
-            result["error"] = ("This image is too large to preview safely, "
-                               "or could not be scaled down.")
+            result["error"] = (
+                "ImageMagick is required to preview images safely. Install the "
+                "'imagemagick' package."
+                if not which("identify") else
+                "This image is too large to preview safely, or could not be scaled down."
+            )
         else:
             result["images"] = [safe]
     elif kind == "pdf":

@@ -35,9 +35,11 @@ Inside the preview: `Space`, `Esc` or `Q` dismiss, `Enter` opens the file in its
 ## Requirements
 
 - Omarchy 4 / Quickshell plugin support
-- `python3` with PyGObject (`python-gobject`)
-- `nautilus-python` for the right-click entry (optional)
-- `poppler` for PDF pages, `ffmpeg` / `ffmpegthumbnailer` for media stills, `imagemagick` for image metadata — each is optional and only affects its own file type
+- `python3` with PyGObject (`python-gobject`) — required for the Space-key bridge
+- `file` — required; without it nothing is classified and every file falls back to "no preview"
+- `imagemagick` — **required for image previews**. It is what measures an image before decoding it, so without it images are refused rather than shown
+- `poppler` (PDF pages), `ffmpeg` and `ffmpegthumbnailer` (video stills, cover art), `bsdtar`/libarchive (archive listings) — optional, each affects only its own file type
+- `xdg-open` for the Open button, `nautilus-python` for the right-click entry — both optional
 
 ## Install
 
@@ -57,7 +59,16 @@ EOF
 nautilus -q
 ```
 
-To hand Space back to GNOME's own previewer (sushi), delete that file and run `nautilus -q`.
+Optionally add the right-click entry as well:
+
+```bash
+mkdir -p ~/.local/share/nautilus-python/extensions
+cp ~/.config/omarchy/plugins/andreconde.quick-look/nautilus/quick_look.py \
+   ~/.local/share/nautilus-python/extensions/
+nautilus -q
+```
+
+To hand Space back to GNOME's own previewer (sushi), delete the `.service` file and run `nautilus -q`.
 
 ## Notes
 

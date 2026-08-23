@@ -48,6 +48,15 @@ Item {
     return "'" + String(v).replace(/'/g, "'\\''") + "'"
   }
 
+  // Percent-encode each path segment. Qt parses the string as a URL, so a
+  // literal '#' truncates at the fragment, '?' at the query, and '%' is decoded
+  // — the last of which can resolve to a *different* file than the one picked.
+  function fileUrl(path) {
+    var parts = String(path || "").split("/")
+    for (var i = 0; i < parts.length; i++) parts[i] = encodeURIComponent(parts[i])
+    return "file://" + parts.join("/")
+  }
+
   // Allowlist rather than denylist: anything not plainly a web link is ignored.
   function isSafeLink(link) {
     return /^(https?|mailto):/i.test(String(link || "").trim())
@@ -307,7 +316,7 @@ Item {
               Image {
                 visible: root.kind === "image" && root.previewImages.length > 0
                 anchors.fill: parent
-                source: root.previewImages.length > 0 ? "file://" + root.previewImages[0] : ""
+                source: root.previewImages.length > 0 ? root.fileUrl(root.previewImages[0]) : ""
                 fillMode: Image.PreserveAspectFit
                 asynchronous: true
                 cache: false
@@ -335,7 +344,7 @@ Item {
                     Image {
                       required property var modelData
                       width: parent.width
-                      source: "file://" + modelData
+                      source: root.fileUrl(modelData)
                       fillMode: Image.PreserveAspectFit
                       asynchronous: true
                       cache: false
@@ -355,7 +364,7 @@ Item {
                   id: mediaArt
                   visible: root.previewImages.length > 0
                   anchors.fill: parent
-                  source: root.previewImages.length > 0 ? "file://" + root.previewImages[0] : ""
+                  source: root.previewImages.length > 0 ? root.fileUrl(root.previewImages[0]) : ""
                   fillMode: Image.PreserveAspectFit
                   asynchronous: true
                   cache: false
