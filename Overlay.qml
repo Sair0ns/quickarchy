@@ -69,6 +69,21 @@ Item {
     openFile(String(args.path || ""))
   }
 
+  // Quickshell ignores a command change while a Process is running, so a second
+  // request during a slow probe (a multi-page PDF) would be dropped and the
+  // first file's content shown under the second file's name. Remember the newer
+  // request, stop the in-flight probe, and run it when that one exits.
+  property string pendingPath: ""
+
+  function startProbe(target) {
+    if (probe.running) {
+      pendingPath = target
+      probe.running = false
+      return
+    }
+    startProbe(target)
+  }
+
   function openFile(path) {
     var target = String(path || "")
     if (target === "") {
@@ -132,6 +147,13 @@ Item {
     stdout: StdioCollector { id: probeOut; waitForEnd: true }
     stderr: StdioCollector { id: probeErr; waitForEnd: true }
     onExited: function(exitCode) {
+      // A superseded probe was killed on purpose; its output is stale.
+      if (root.pendingPath !== "") {
+        var next = root.pendingPath
+        root.pendingPath = ""
+        root.startProbe(next)
+        return
+      }
       root.loading = false
       var raw = String(probeOut.text || "").trim()
       if (exitCode !== 0 || raw === "") {
