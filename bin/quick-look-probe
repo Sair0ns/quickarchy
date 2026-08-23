@@ -39,6 +39,20 @@ MAX_PREVIEW_PIXELS = 24_000_000    # ~24 MP before a downscaled copy is made
 MAX_PREVIEW_EDGE = 6000            # or this on any single edge
 PREVIEW_FIT = 2400                 # longest edge of the downscaled copy
 
+# ImageMagick runs against untrusted input, so it gets its own resource ceiling.
+# Without this a decompression bomb is a memory bomb in a helper we spawned.
+# `area` is a pixel-cache size in bytes, not megapixels: set it too low and a
+# legitimately large photo is starved instead of spilling to the disk cache.
+# These values downscale a 49 MP source in ~2.5s while still failing closed on
+# a decompression bomb, whose cache demand blows past the disk ceiling.
+IM_LIMITS = [
+    "-limit", "memory", "256MiB",
+    "-limit", "map", "512MiB",
+    "-limit", "area", "512MB",
+    "-limit", "disk", "2GiB",
+    "-limit", "time", "30",
+]
+
 MARKDOWN_EXT = {".md", ".markdown", ".mdown", ".mkd"}
 # Extensions file(1) tends to report as text/plain but which are really code.
 CODE_EXT = {
@@ -174,7 +188,9 @@ def read_text(path):
 
 
 def image_dimensions(path):
-    out = run(["identify", "-format", "%w %h", path + "[0]"], timeout=15)
+    # -ping reads the header and stops; without it identify decodes the pixels
+    # it was asked to measure, which is the very thing being guarded against.
+    out = run(["identify"] + IM_LIMITS + ["-ping", "-format", "%w %h", path + "[0]"], timeout=15)
     if not out:
         return None
     parts = out.strip().split()
@@ -187,28 +203,38 @@ def image_dimensions(path):
 
 
 def bounded_image(path, cache):
-    """Return a path safe to hand to an Image element.
+    """Return a path safe to hand to an Image element, or None.
 
     Qt has to decode whatever it is given, and formats like PNG cannot be
     decoded at a reduced size, so a 30000x30000 source would be fully
     rasterised inside the shell process. Anything past the ceiling is
     downscaled into the cache once and the copy is previewed instead.
+
+    This path fails closed. If the dimensions cannot be read, or the downscale
+    does not produce a usable file, the answer is None — never the original.
+    Handing back a file that was just classified as too large to decode would
+    defeat the check entirely.
     """
     size = image_dimensions(path)
     if not size:
-        return path
+        return None
     width, height = size
     if width * height <= MAX_PREVIEW_PIXELS and max(width, height) <= MAX_PREVIEW_EDGE:
         return path
 
     scaled = os.path.join(cache, "scaled.png")
-    if not os.path.exists(scaled):
-        run([
-            "magick", path + "[0]",
-            "-resize", "%dx%d>" % (PREVIEW_FIT, PREVIEW_FIT),
-            scaled,
-        ], timeout=60)
-    return scaled if os.path.exists(scaled) else path
+    if not os.path.exists(scaled) or os.path.getsize(scaled) == 0:
+        run(
+            ["magick"] + IM_LIMITS + [
+                path + "[0]",
+                "-resize", "%dx%d>" % (PREVIEW_FIT, PREVIEW_FIT),
+                scaled,
+            ],
+            timeout=60,
+        )
+    if os.path.exists(scaled) and os.path.getsize(scaled) > 0:
+        return scaled
+    return None
 
 def image_meta(path):
     meta = []
@@ -456,7 +482,15 @@ def build(path):
 
     if kind == "image":
         result["meta"] = image_meta(path)
-        result["images"] = [bounded_image(path, cache)]
+        safe = bounded_image(path, cache)
+        if safe is None:
+            # Refused rather than rendered: say so instead of quietly showing
+            # nothing, and never fall back to the original.
+            result["images"] = []
+            result["error"] = ("This image is too large to preview safely, "
+                               "or could not be scaled down.")
+        else:
+            result["images"] = [safe]
     elif kind == "pdf":
         meta, images, text = pdf_preview(path, cache)
         result["meta"], result["images"], result["text"] = meta, images, text

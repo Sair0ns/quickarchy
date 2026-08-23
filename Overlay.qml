@@ -454,8 +454,14 @@ Item {
 
               // Nothing renderable: explain rather than showing a blank card.
               Column {
+                // Also covers a preview the helper refused to produce (an image
+                // past the decode ceiling), so the card explains itself instead
+                // of rendering an empty pane.
                 visible: root.kind === "binary" || root.kind === "missing"
                   || (root.kind === "pdf" && root.previewImages.length === 0)
+                  || ((root.kind === "image" || root.kind === "video" || root.kind === "audio")
+                      && root.previewImages.length === 0
+                      && String(root.info.error || "") !== "")
                 anchors.centerIn: parent
                 width: parent.width * 0.8
                 spacing: Style.space(12)
