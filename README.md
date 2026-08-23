@@ -64,3 +64,22 @@ To hand Space back to GNOME's own previewer (sushi), delete that file and run `n
 - Rendered pages, stills and cover art are cached under `~/.cache/omarchy/quick-look`, keyed by path and modification time, and pruned after 7 days. Reopening a file is instant; changing it re-renders.
 - Video is previewed as a still frame rather than played. Press Enter to open it in a real player.
 - All format handling lives in `bin/quick-look-probe`, which prints JSON. Run it against a file to see exactly what the overlay will draw.
+
+## Remove
+
+```bash
+omarchy plugin remove andreconde.quick-look --yes
+```
+
+Then hand the Space key back to GNOME's own previewer (sushi) and drop the render cache:
+
+```bash
+rm -f ~/.local/share/dbus-1/services/org.gnome.NautilusPreviewer.service
+rm -f ~/.local/share/nautilus-python/extensions/quick_look.py
+rm -rf ~/.cache/omarchy/quick-look
+nautilus -q
+```
+
+## License
+
+MIT — see [LICENSE](LICENSE).
