@@ -15,7 +15,7 @@ Renders a themed full-screen preview of whatever is selected:
 | Video | A still frame, duration, resolution and codec |
 | Audio | Embedded cover art, title/artist/album, duration |
 | Text and code | The file contents, up to 400 lines |
-| Markdown | Rendered markdown |
+| Markdown | The source, shown literally (see Notes) |
 | Folders | The contents, folders first |
 | Archives | The entry list |
 | Anything else | Type, size and what `file` makes of it |
@@ -61,6 +61,7 @@ To hand Space back to GNOME's own previewer (sushi), delete that file and run `n
 
 ## Notes
 
+- Previews render as plain text, including Markdown. A preview shows files this shell did not author, and Qt's rich-text formats resolve image and raw-HTML references themselves inside a long-lived process; plain text cannot reference an external resource at all. That is a deliberate trade of formatting for a property that holds by construction.
 - Rendered pages, stills and cover art are cached under `~/.cache/omarchy/quick-look`, keyed by path and modification time, and pruned after 7 days. Reopening a file is instant; changing it re-renders.
 - Video is previewed as a still frame rather than played. Press Enter to open it in a real player.
 - All format handling lives in `bin/quick-look-probe`, which prints JSON. Run it against a file to see exactly what the overlay will draw.

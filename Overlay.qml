@@ -402,16 +402,21 @@ Item {
                   id: textContent
                   width: parent.width
                   text: String(root.info.text || "")
-                  // Markdown gets rendered; everything else stays literal so
-                  // stray markup in a config file is not reinterpreted.
-                  textFormat: root.kind === "markdown" ? Text.MarkdownText : Text.PlainText
+                  // Always literal. A preview renders files this shell did not
+                  // author, and Qt's rich-text formats resolve image and HTML
+                  // resource references themselves — from inside a process that
+                  // never restarts. Plain text cannot reference an external
+                  // resource at all, which makes that safe by construction
+                  // instead of by pattern-matching the markup. Do not switch
+                  // this to MarkdownText or StyledText.
+                  textFormat: Text.PlainText
                   color: Color.foreground
                   font.family: Style.font.family
                   font.pixelSize: Style.font.bodySmall
                   wrapMode: Text.Wrap
-                  // Only hand well-known web schemes to xdg-open. A document is
-                  // untrusted input, and xdg-open will happily dispatch file://
-                  // or any registered custom scheme to a local handler.
+                  // Kept as a backstop: PlainText emits no links today, but if a
+                  // richer format is ever reintroduced this keeps xdg-open from
+                  // being handed file:// or a registered custom scheme.
                   onLinkActivated: function(link) {
                     if (!root.isSafeLink(link)) return
                     Quickshell.execDetached(["sh", "-lc", "xdg-open " + root.shellQuote(link) + " >/dev/null 2>&1 &"])

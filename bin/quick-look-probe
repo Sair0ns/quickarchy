@@ -14,7 +14,6 @@ same file is instant and a changed file re-renders.
 import hashlib
 import json
 import os
-import re
 import selectors
 import shutil
 import subprocess
@@ -188,25 +187,6 @@ def read_text(path):
 
 
 
-
-def sanitize_markdown(text):
-    """Strip anything Qt would resolve as an external resource.
-
-    Text.MarkdownText makes Qt fetch image references itself, from inside the
-    long-lived shell, and raw HTML can smuggle the same thing past the Markdown
-    syntax. Neither is worth rendering in a file preview, so images collapse to
-    their alt text and raw tags are dropped before the text leaves this helper.
-    Angle-bracket autolinks go with them, which is a fair price for the class of
-    problem it removes.
-    """
-    # ![alt](url) and ![alt][ref] -> alt
-    text = re.sub(r"!\[([^\]]*)\]\([^)]*\)", r"\1", text)
-    text = re.sub(r"!\[([^\]]*)\]\[[^\]]*\]", r"\1", text)
-    # raw HTML / autolinks
-    text = re.sub(r"<[^>\n]{0,300}>", "", text)
-    # link reference definitions that could still name an image
-    text = re.sub(r"(?mi)^\s*\[[^\]]+\]:\s*\S+.*$", "", text)
-    return text
 
 def image_dimensions(path):
     # -ping reads the header and stops; without it identify decodes the pixels
@@ -521,9 +501,9 @@ def build(path):
         result["meta"], result["images"] = audio_preview(path, cache)
     elif kind in ("text", "markdown"):
         text, truncated = read_text(path)
-        # Only markdown is rendered as rich text downstream, so only markdown
-        # needs neutralising; plain text is displayed literally either way.
-        result["text"] = sanitize_markdown(text) if kind == "markdown" else text
+        # Rendered literally by the overlay regardless of kind, so there is
+        # nothing to neutralise here.
+        result["text"] = text
         result["truncated"] = truncated
         result["meta"] = [mime]
     elif kind == "archive":
