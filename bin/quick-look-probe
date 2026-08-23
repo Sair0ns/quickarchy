@@ -14,6 +14,7 @@ same file is instant and a changed file re-renders.
 import hashlib
 import json
 import os
+import selectors
 import shutil
 import subprocess
 import sys
@@ -30,6 +31,14 @@ DIR_ENTRY_LIMIT = 300
 PDF_PAGE_LIMIT = 8
 ARCHIVE_ENTRY_LIMIT = 200
 
+# Ceilings that keep a hostile input from exhausting this process or the
+# long-lived shell that consumes the JSON below.
+MAX_HELPER_BYTES = 512 * 1024      # per helper invocation
+MAX_JSON_BYTES = 1024 * 1024       # whole payload handed to the overlay
+MAX_PREVIEW_PIXELS = 24_000_000    # ~24 MP before a downscaled copy is made
+MAX_PREVIEW_EDGE = 6000            # or this on any single edge
+PREVIEW_FIT = 2400                 # longest edge of the downscaled copy
+
 MARKDOWN_EXT = {".md", ".markdown", ".mdown", ".mkd"}
 # Extensions file(1) tends to report as text/plain but which are really code.
 CODE_EXT = {
@@ -44,17 +53,66 @@ def which(name):
     return shutil.which(name) is not None
 
 
-def run(argv, timeout=20):
-    """Run a helper and return stdout, or None if it is missing or fails."""
+def run(argv, timeout=20, limit=MAX_HELPER_BYTES):
+    """Run a helper and return at most `limit` bytes of its stdout.
+
+    Every helper here is pointed at an untrusted file, so output is drained
+    through a bounded read with its own deadline rather than buffered whole. A
+    crafted document (a PDF whose text layer is gigabytes, a container with
+    absurd metadata) can therefore never make this process — or the long-lived
+    shell that reads its JSON — allocate without limit. A truncated read still
+    returns what was collected; only a genuine failure returns None.
+    """
     try:
-        proc = subprocess.run(
-            argv, capture_output=True, timeout=timeout, check=False,
-        )
-    except (OSError, subprocess.SubprocessError):
+        proc = subprocess.Popen(argv, stdout=subprocess.PIPE, stderr=subprocess.DEVNULL)
+    except OSError:
         return None
-    if proc.returncode != 0:
+
+    chunks = []
+    total = 0
+    truncated = False
+    deadline = time.monotonic() + timeout
+    selector = selectors.DefaultSelector()
+    selector.register(proc.stdout, selectors.EVENT_READ)
+    try:
+        while True:
+            remaining = deadline - time.monotonic()
+            if remaining <= 0:
+                truncated = True
+                break
+            if not selector.select(remaining):
+                truncated = True
+                break
+            chunk = proc.stdout.read1(65536)
+            if not chunk:
+                break
+            if total + len(chunk) >= limit:
+                chunks.append(chunk[: max(0, limit - total)])
+                truncated = True
+                break
+            chunks.append(chunk)
+            total += len(chunk)
+    except OSError:
+        truncated = True
+    finally:
+        selector.close()
+        try:
+            proc.stdout.close()
+        except OSError:
+            pass
+        if proc.poll() is None:
+            proc.kill()
+        try:
+            returncode = proc.wait(timeout=5)
+        except subprocess.TimeoutExpired:
+            returncode = -1
+
+    text = b"".join(chunks).decode("utf-8", "replace")
+    if truncated:
+        return text
+    if returncode != 0:
         return None
-    return proc.stdout.decode("utf-8", "replace")
+    return text
 
 
 def human_size(size):
@@ -114,6 +172,44 @@ def read_text(path):
     return "\n".join(lines), truncated
 
 
+
+def image_dimensions(path):
+    out = run(["identify", "-format", "%w %h", path + "[0]"], timeout=15)
+    if not out:
+        return None
+    parts = out.strip().split()
+    if len(parts) < 2:
+        return None
+    try:
+        return int(parts[0]), int(parts[1])
+    except ValueError:
+        return None
+
+
+def bounded_image(path, cache):
+    """Return a path safe to hand to an Image element.
+
+    Qt has to decode whatever it is given, and formats like PNG cannot be
+    decoded at a reduced size, so a 30000x30000 source would be fully
+    rasterised inside the shell process. Anything past the ceiling is
+    downscaled into the cache once and the copy is previewed instead.
+    """
+    size = image_dimensions(path)
+    if not size:
+        return path
+    width, height = size
+    if width * height <= MAX_PREVIEW_PIXELS and max(width, height) <= MAX_PREVIEW_EDGE:
+        return path
+
+    scaled = os.path.join(cache, "scaled.png")
+    if not os.path.exists(scaled):
+        run([
+            "magick", path + "[0]",
+            "-resize", "%dx%d>" % (PREVIEW_FIT, PREVIEW_FIT),
+            scaled,
+        ], timeout=60)
+    return scaled if os.path.exists(scaled) else path
+
 def image_meta(path):
     meta = []
     out = run(["identify", "-format", "%wx%h|%m|%[colorspace]", path + "[0]"], timeout=15)
@@ -151,8 +247,10 @@ def pdf_preview(path, cache):
     if which("pdftoppm"):
         prefix = os.path.join(cache, "page")
         if not any(name.startswith("page") for name in os.listdir(cache)):
+            # -scale-to bounds the raster regardless of the page's declared
+            # size, so an absurd MediaBox cannot produce a giant PNG.
             run([
-                "pdftoppm", "-png", "-r", "110",
+                "pdftoppm", "-png", "-scale-to", str(PREVIEW_FIT),
                 "-f", "1", "-l", str(PDF_PAGE_LIMIT), path, prefix,
             ], timeout=60)
         images = sorted(
@@ -358,7 +456,7 @@ def build(path):
 
     if kind == "image":
         result["meta"] = image_meta(path)
-        result["images"] = [path]
+        result["images"] = [bounded_image(path, cache)]
     elif kind == "pdf":
         meta, images, text = pdf_preview(path, cache)
         result["meta"], result["images"], result["text"] = meta, images, text
@@ -394,7 +492,23 @@ def main():
         payload = {"kind": "missing", "error": "Preview failed: %s" % exc,
                    "name": os.path.basename(sys.argv[1]), "path": sys.argv[1],
                    "meta": [], "images": [], "entries": [], "text": ""}
-    print(json.dumps(payload))
+    encoded = json.dumps(payload)
+    if len(encoded) > MAX_JSON_BYTES:
+        # Text is the only field that can realistically get here; drop it
+        # rather than hand the shell a payload it should not parse.
+        payload["text"] = ""
+        payload["truncated"] = True
+        payload["meta"] = list(payload.get("meta") or [])[:6]
+        payload["entries"] = list(payload.get("entries") or [])[:50]
+        encoded = json.dumps(payload)
+        if len(encoded) > MAX_JSON_BYTES:
+            encoded = json.dumps({
+                "kind": "missing", "name": payload.get("name", ""),
+                "path": payload.get("path", ""), "meta": [], "images": [],
+                "entries": [], "text": "",
+                "error": "Preview output was too large to display safely.",
+            })
+    print(encoded)
     return 0
 
 

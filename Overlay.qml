@@ -25,6 +25,12 @@ Item {
     ? String(manifest.__sourceDir) + "/bin/quick-look-probe"
     : ""
 
+  // Decode ceilings. Qt must rasterise whatever an Image is handed, so every
+  // Image below carries a sourceSize; without it a single oversized file would
+  // be decoded at full size inside the shared shell process.
+  readonly property int maxPayloadBytes: 1024 * 1024
+  readonly property int maxDecodeEdge: 2600
+
   readonly property string kind: String(info.kind || "")
   readonly property string displayName: String(info.name || "Quick Look")
   readonly property var previewImages: info.images instanceof Array ? info.images : []
@@ -120,6 +126,17 @@ Item {
           kind: "missing",
           name: root.requestedPath.split("/").pop(),
           error: err !== "" ? err : "Could not preview this file."
+        }
+        return
+      }
+      // The helper caps its own output, but this is the boundary where
+      // untrusted data enters the long-lived shell, so the ceiling is enforced
+      // on this side too rather than trusted from the other.
+      if (raw.length > root.maxPayloadBytes) {
+        root.info = {
+          kind: "missing",
+          name: root.requestedPath.split("/").pop(),
+          error: "Preview output was too large to display safely."
         }
         return
       }
@@ -290,6 +307,8 @@ Item {
                 asynchronous: true
                 cache: false
                 mipmap: true
+                sourceSize.width: root.maxDecodeEdge
+                sourceSize.height: root.maxDecodeEdge
               }
 
               // PDF pages, rendered ahead of time by the probe.
@@ -315,6 +334,8 @@ Item {
                       fillMode: Image.PreserveAspectFit
                       asynchronous: true
                       cache: false
+                      sourceSize.width: root.maxDecodeEdge
+                      sourceSize.height: root.maxDecodeEdge
                     }
                   }
                 }
@@ -333,6 +354,8 @@ Item {
                   fillMode: Image.PreserveAspectFit
                   asynchronous: true
                   cache: false
+                  sourceSize.width: root.maxDecodeEdge
+                  sourceSize.height: root.maxDecodeEdge
                 }
 
                 Text {
