@@ -1,0 +1,171 @@
+#!/usr/bin/env python3
+"""Send the previewed file to a printer through CUPS.
+
+Quick Look prints the file it is showing: images and PDFs go out as they are,
+plain text is converted by the CUPS filter chain. Anything else is refused
+rather than queued, because a job that comes out blank wastes paper.
+
+Usage:
+    quick-look-print <file> [--printer NAME]
+    quick-look-print --list
+
+Output is a single JSON object on stdout, so the overlay can show the outcome
+without parsing English:
+
+    {"ok": true,  "printer": "HP-LaserJet-M140w", "job": "HP-LaserJet-M140w-42",
+     "file": "/path/to/file.jpg", "message": "Sent to HP-LaserJet-M140w"}
+    {"ok": false, "error": "no-default-printer", "message": "No default printer"}
+
+Exit codes: 0 sent, 1 failed, 2 unsupported file type, 3 no printer.
+"""
+
+import json
+import mimetypes
+import os
+import shutil
+import subprocess
+import sys
+
+PRINTABLE_PREFIXES = ("image/",)
+PRINTABLE_EXACT = ("application/pdf", "application/postscript", "text/plain")
+
+
+def emit(ok, message, **extra):
+    payload = {"ok": ok, "message": message}
+    payload.update(extra)
+    print(json.dumps(payload))
+    return 0 if ok else 1
+
+
+def run(cmd):
+    return subprocess.run(cmd, capture_output=True, text=True)
+
+
+def default_printer():
+    """CUPS reports the system default as `lpstat -d`."""
+    if shutil.which("lpstat") is None:
+        return ""
+    out = run(["lpstat", "-d"]).stdout.strip()
+    # "system default destination: NAME"  (or "no system default destination")
+    if ":" in out and "no " not in out.split(":")[0].lower():
+        return out.split(":", 1)[1].strip()
+    return ""
+
+
+def list_printers():
+    if shutil.which("lpstat") is None:
+        return []
+    out = run(["lpstat", "-p"]).stdout
+    names = []
+    for line in out.splitlines():
+        if line.startswith("printer "):
+            names.append(line.split()[1])
+    return names
+
+
+def mime_of(path):
+    guess, _ = mimetypes.guess_type(path)
+    if guess:
+        return guess
+    # Fall back to libmagic when the extension says nothing.
+    if shutil.which("file") is not None:
+        out = run(["file", "--brief", "--mime-type", path]).stdout.strip()
+        if out:
+            return out
+    return "application/octet-stream"
+
+
+def main(argv):
+    path = ""
+    printer = ""
+    want_list = False
+
+    i = 0
+    while i < len(argv):
+        arg = argv[i]
+        if arg in ("-h", "--help"):
+            print(__doc__.strip())
+            return 0
+        if arg == "--list":
+            want_list = True
+        elif arg == "--printer" and i + 1 < len(argv):
+            i += 1
+            printer = argv[i]
+        elif arg.startswith("--printer="):
+            printer = arg.split("=", 1)[1]
+        elif not arg.startswith("-"):
+            path = arg
+        i += 1
+
+    if want_list:
+        printers = list_printers()
+        default = default_printer()
+        print(json.dumps({"printers": printers, "default": default}))
+        return 0
+
+    if not path:
+        return emit(False, "No file to print", error="no-file")
+
+    if not os.path.exists(path):
+        return emit(False, "File not found: %s" % path, error="missing")
+    if os.path.isdir(path):
+        return emit(False, "A folder cannot be printed", error="directory")
+
+    mime = mime_of(path)
+    if not (mime.startswith(PRINTABLE_PREFIXES) or mime in PRINTABLE_EXACT):
+        return emit(
+            False,
+            "Only images, PDFs and text can be printed (%s)" % mime,
+            error="unsupported-type",
+            mime=mime,
+        )
+
+    if shutil.which("lp") is None:
+        return emit(False, "CUPS client `lp` is not installed", error="no-lp")
+
+    if not printer:
+        printer = default_printer()
+    available = list_printers()
+    if not printer:
+        return emit(
+            False,
+            "No default printer configured",
+            error="no-default-printer",
+            printers=available,
+        )
+    if available and printer not in available:
+        return emit(
+            False,
+            "Printer %s is not available" % printer,
+            error="printer-unavailable",
+            printers=available,
+        )
+
+    cmd = ["lp", "-d", printer, "-t", os.path.basename(path)]
+    if mime.startswith("image/"):
+        # Images arrive at their pixel size; let CUPS scale them to the page.
+        cmd += ["-o", "fit-to-page"]
+    cmd.append(path)
+
+    result = run(cmd)
+    if result.returncode != 0:
+        detail = (result.stderr or result.stdout or "").strip().splitlines()
+        return emit(
+            False,
+            detail[0] if detail else "The printer refused the job",
+            error="lp-failed",
+            printer=printer,
+        )
+
+    # stdout: "request id is HP-LaserJet-M140w-42 (1 file(s))"
+    job = ""
+    for line in result.stdout.splitlines():
+        if "request id is" in line:
+            job = line.split("request id is", 1)[1].strip().split()[0]
+            break
+
+    return emit(True, "Sent to %s" % printer, printer=printer, job=job, file=path)
+
+
+if __name__ == "__main__":
+    sys.exit(main(sys.argv[1:]))

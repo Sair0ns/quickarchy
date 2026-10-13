@@ -30,7 +30,26 @@ Ways in:
 - **Right-click → Quick Look** (a Nautilus extension, for discoverability)
 - `omarchy-shell andreconde.quick-look show /path/to/file`
 
-Inside the preview: `Space`, `Esc` or `Q` dismiss, `Enter` opens the file in its default application.
+Inside the preview: `Space`, `Esc` or `Q` dismiss, `Enter` opens the file in its default application, `P` (or `Ctrl+P`) prints it.
+
+## Printing
+
+Press **P** (or Ctrl+P) inside the preview and the file goes to the **CUPS default
+printer**. Images are scaled to the page (`fit-to-page`), PDFs are sent as they are,
+plain text is converted by the CUPS filter chain. Everything else — folders,
+archives, videos, audio, binaries — is refused *before* a job is queued, because a
+job that comes out blank only wastes paper.
+
+The card reports what CUPS answered: `Sent to <printer>` on success, or the reason
+it refused. The line clears itself after a few seconds.
+
+- Which printer: the system default. Change it with `lpoptions -d <name>`, list them
+  with `lpstat -p`.
+- Print to a specific printer without touching the default:
+  `bin/quick-look-print <file> --printer <name>`
+- From a keybinding or a script:
+  `omarchy-shell andreconde.quick-look printFile /path/to/file`
+  (and `printResult` for the last outcome).
 
 ## Requirements
 
@@ -40,6 +59,7 @@ Inside the preview: `Space`, `Esc` or `Q` dismiss, `Enter` opens the file in its
 - `imagemagick` — **required for image previews**. It is what measures an image before decoding it, so without it images are refused rather than shown
 - `poppler` (PDF pages), `ffmpeg` and `ffmpegthumbnailer` (video stills, cover art), `bsdtar`/libarchive (archive listings) — optional, each affects only its own file type
 - `xdg-open` for the Open button, `nautilus-python` for the right-click entry — both optional
+- `cups` (`lp`, `lpstat`) with a configured default printer — required for printing; without it the Print button is still shown and the card reports that no default printer is configured
 
 ## Install
 

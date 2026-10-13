@@ -3,6 +3,7 @@ import Quickshell
 import Quickshell.Wayland
 import Quickshell.Io
 import qs.Commons
+import qs.Commons as Commons
 import qs.Ui
 
 // Full-screen file preview in the spirit of macOS Quick Look: one keypress in
@@ -21,8 +22,17 @@ Item {
   property string requestedPath: ""
   property var info: ({})
 
+  // Printing. `printing` guards against a second job while one is in flight,
+  // `printStatus` carries the helper's message to the card and clears itself.
+  property bool printing: false
+  property string printStatus: ""
+
   readonly property string probeScript: manifest && manifest.__sourceDir
     ? String(manifest.__sourceDir) + "/bin/quick-look-probe"
+    : ""
+
+  readonly property string printScript: manifest && manifest.__sourceDir
+    ? String(manifest.__sourceDir) + "/bin/quick-look-print"
     : ""
 
   // Decode ceilings. Qt must rasterise whatever an Image is handed, so every
@@ -132,6 +142,49 @@ Item {
     close()
   }
 
+  // A folder, an archive or a video has nothing meaningful to put on paper, so
+  // the affordance is hidden for those kinds instead of failing on keypress.
+  readonly property bool canPrint: root.requestedPath !== ""
+    && (root.kind === "image" || root.kind === "pdf" || root.kind === "text")
+
+  function printCurrent() {
+    if (!root.canPrint || root.printing || root.printScript === "") return
+    if (printer.running) return
+    root.printing = true
+    root.printStatus = "Printing…"
+    printer.command = ["python3", root.printScript, root.requestedPath]
+    printer.running = true
+  }
+
+  Timer {
+    id: printStatusTimer
+    interval: 6000
+    repeat: false
+    onTriggered: root.printStatus = ""
+  }
+
+  // The helper answers with one JSON line, so the card shows exactly what CUPS
+  // said — "Sent to <printer>", or the reason it refused.
+  Process {
+    id: printer
+    running: false
+    stdout: StdioCollector { id: printerOut; waitForEnd: true }
+    stderr: StdioCollector { id: printerErr; waitForEnd: true }
+    onExited: function(exitCode) {
+      root.printing = false
+      var message = ""
+      var raw = String(printerOut.text || "").trim()
+      try {
+        message = String(JSON.parse(raw).message || "")
+      } catch (e) {
+        message = String(printerErr.text || "").trim()
+      }
+      if (message === "") message = exitCode === 0 ? "Sent to the printer" : "Print failed"
+      root.printStatus = message
+      printStatusTimer.restart()
+    }
+  }
+
   function metaLine() {
     var parts = []
     if (info.sizeHuman) parts.push(String(info.sizeHuman))
@@ -206,6 +259,17 @@ Item {
     function isOpen(): string {
       return root.opened ? "true" : "false"
     }
+
+    // Same code path as the P key, so a keybinding or a script can print too.
+    function printFile(path: string): string {
+      if (path !== "") root.openFile(path)
+      root.printCurrent()
+      return root.canPrint ? "printing" : "cannot-print"
+    }
+
+    function printResult(): string {
+      return root.printStatus
+    }
   }
 
   PanelWindow {
@@ -239,6 +303,11 @@ Item {
           } else if (event.key === Qt.Key_Return || event.key === Qt.Key_Enter) {
             root.openExternally()
             event.accepted = true
+          } else if (event.key === Qt.Key_P) {
+            // Plain P and Ctrl+P both print: Ctrl+P is the habit from every
+            // other application, P is the one-key flow of a previewer.
+            root.printCurrent()
+            event.accepted = true
           }
         }
 
@@ -248,9 +317,9 @@ Item {
           height: Math.min(parent.height * 0.82, Style.space(800))
           anchors.centerIn: parent
           radius: Style.cornerRadius
-          color: Color.popups.background
+          color: Commons.Color.popups.background
           border.width: Math.max(1, Style.normalBorderWidth)
-          border.color: Qt.rgba(Color.foreground.r, Color.foreground.g, Color.foreground.b, 0.28)
+          border.color: Qt.rgba(Commons.Color.foreground.r, Commons.Color.foreground.g, Commons.Color.foreground.b, 0.28)
 
           // Swallow clicks so they don't reach the dismiss layer behind.
           MouseArea { anchors.fill: parent }
@@ -275,7 +344,7 @@ Item {
 
                 Text {
                   text: root.kindGlyph
-                  color: Color.foreground
+                  color: Commons.Color.foreground
                   font.family: Style.font.family
                   font.pixelSize: Style.font.heading
                   anchors.verticalCenter: parent.verticalCenter
@@ -289,7 +358,7 @@ Item {
                     width: parent.width
                     text: root.displayName
                     textFormat: Text.PlainText
-                    color: Color.foreground
+                    color: Commons.Color.foreground
                     font.family: Style.font.family
                     font.pixelSize: Style.font.heading
                     font.bold: true
@@ -298,9 +367,9 @@ Item {
 
                   Text {
                     width: parent.width
-                    text: root.loading ? "Reading…" : root.metaLine()
+                    text: root.loading ? "Reading…" : (root.printStatus !== "" ? root.printStatus : root.metaLine())
                     textFormat: Text.PlainText
-                    color: Qt.darker(Color.foreground, 1.5)
+                    color: root.printStatus !== "" ? Commons.Color.accent : Qt.darker(Commons.Color.foreground, 1.5)
                     font.family: Style.font.family
                     font.pixelSize: Style.font.caption
                     elide: Text.ElideRight
@@ -314,7 +383,7 @@ Item {
                 anchors.verticalCenter: parent.verticalCenter
                 iconText: "󰅖"
                 tooltipText: "Close (Esc)"
-                foreground: Color.foreground
+                foreground: Commons.Color.foreground
                 fontFamily: Style.font.family
                 onClicked: root.close()
               }
@@ -322,7 +391,7 @@ Item {
 
             PanelSeparator {
               width: parent.width
-              foreground: Color.foreground
+              foreground: Commons.Color.foreground
             }
 
             // ------------------------------------------------------ content
@@ -398,7 +467,7 @@ Item {
                   visible: !mediaArt.visible
                   anchors.centerIn: parent
                   text: root.kindGlyph
-                  color: Qt.darker(Color.foreground, 1.4)
+                  color: Qt.darker(Commons.Color.foreground, 1.4)
                   font.family: Style.font.family
                   font.pixelSize: Style.font.displayLarge * 3
                 }
@@ -409,7 +478,7 @@ Item {
                   visible: mediaArt.visible
                   anchors.centerIn: parent
                   text: "󰐊"
-                  color: Color.foreground
+                  color: Commons.Color.foreground
                   font.family: Style.font.family
                   font.pixelSize: Style.font.displayLarge * 2
                   opacity: 0.85
@@ -441,7 +510,7 @@ Item {
                   // instead of by pattern-matching the markup. Do not switch
                   // this to MarkdownText or StyledText.
                   textFormat: Text.PlainText
-                  color: Color.foreground
+                  color: Commons.Color.foreground
                   font.family: Style.font.family
                   font.pixelSize: Style.font.bodySmall
                   wrapMode: Text.Wrap
@@ -478,7 +547,7 @@ Item {
 
                       Text {
                         text: modelData.directory ? "󰉋" : "󰈔"
-                        color: Qt.darker(Color.foreground, 1.3)
+                        color: Qt.darker(Commons.Color.foreground, 1.3)
                         font.family: Style.font.family
                         font.pixelSize: Style.font.bodySmall
                       }
@@ -487,7 +556,7 @@ Item {
                         width: parent.width - Style.space(28)
                         text: String(modelData.name || "")
                         textFormat: Text.PlainText
-                        color: Color.foreground
+                        color: Commons.Color.foreground
                         font.family: Style.font.family
                         font.pixelSize: Style.font.bodySmall
                         elide: Text.ElideMiddle
@@ -514,7 +583,7 @@ Item {
                 Text {
                   anchors.horizontalCenter: parent.horizontalCenter
                   text: root.kindGlyph
-                  color: Qt.darker(Color.foreground, 1.4)
+                  color: Qt.darker(Commons.Color.foreground, 1.4)
                   font.family: Style.font.family
                   font.pixelSize: Style.font.displayLarge * 2
                 }
@@ -524,7 +593,7 @@ Item {
                   horizontalAlignment: Text.AlignHCenter
                   text: String(root.info.error || root.info.text || "No preview available for this file type.")
                   textFormat: Text.PlainText
-                  color: Qt.darker(Color.foreground, 1.3)
+                  color: Qt.darker(Commons.Color.foreground, 1.3)
                   font.family: Style.font.family
                   font.pixelSize: Style.font.bodySmall
                   wrapMode: Text.Wrap
@@ -535,7 +604,7 @@ Item {
                 visible: root.loading
                 anchors.centerIn: parent
                 text: "Reading…"
-                color: Qt.darker(Color.foreground, 1.4)
+                color: Qt.darker(Commons.Color.foreground, 1.4)
                 font.family: Style.font.family
                 font.pixelSize: Style.font.body
               }
@@ -551,15 +620,30 @@ Item {
               Text {
                 id: pathText
                 anchors.left: parent.left
-                anchors.right: openButton.left
+                anchors.right: printButton.left
                 anchors.rightMargin: Style.space(10)
                 anchors.verticalCenter: parent.verticalCenter
                 text: root.requestedPath
                 textFormat: Text.PlainText
-                color: Qt.darker(Color.foreground, 1.6)
+                color: Qt.darker(Commons.Color.foreground, 1.6)
                 font.family: Style.font.family
                 font.pixelSize: Style.font.caption
                 elide: Text.ElideMiddle
+              }
+
+              Button {
+                id: printButton
+                anchors.right: openButton.left
+                anchors.rightMargin: Style.space(8)
+                anchors.verticalCenter: parent.verticalCenter
+                visible: root.canPrint
+                text: "Print"
+                bordered: true
+                foreground: Commons.Color.foreground
+                fontFamily: Style.font.family
+                fontSize: Style.font.caption
+                tooltipText: "Print to the default printer (P)"
+                onClicked: root.printCurrent()
               }
 
               Button {
@@ -569,7 +653,7 @@ Item {
                 visible: root.requestedPath !== "" && root.kind !== "missing"
                 text: "󰏌  Open"
                 bordered: true
-                foreground: Color.foreground
+                foreground: Commons.Color.foreground
                 fontFamily: Style.font.family
                 fontSize: Style.font.caption
                 tooltipText: "Open in the default application (Enter)"
