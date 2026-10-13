@@ -27,13 +27,23 @@ Item {
   property bool printing: false
   property string printStatus: ""
 
-  readonly property string probeScript: manifest && manifest.__sourceDir
-    ? String(manifest.__sourceDir) + "/bin/quick-look-probe"
-    : ""
+  // The host strips `__sourceDir` from third-party manifests
+  // (shell.qml → publicPluginManifest), so a plugin cannot learn its own path
+  // from the manifest. Installed plugins always live under
+  // $XDG_CONFIG_HOME/omarchy/plugins/<id>, and the id is public, so the
+  // directory is derived from that. First-party manifests keep the field and
+  // are used as-is when present.
+  readonly property string pluginDir: {
+    if (manifest && manifest.__sourceDir) return String(manifest.__sourceDir)
+    var id = manifest && manifest.id ? String(manifest.id) : "andreconde.quick-look"
+    var cfg = String(Quickshell.env("XDG_CONFIG_HOME") || "")
+    if (cfg === "") cfg = String(Quickshell.env("HOME") || "") + "/.config"
+    return cfg + "/omarchy/plugins/" + id
+  }
 
-  readonly property string printScript: manifest && manifest.__sourceDir
-    ? String(manifest.__sourceDir) + "/bin/quick-look-print"
-    : ""
+  readonly property string probeScript: pluginDir + "/bin/quick-look-probe"
+
+  readonly property string printScript: pluginDir + "/bin/quick-look-print"
 
   // Decode ceilings. Qt must rasterise whatever an Image is handed, so every
   // Image below carries a sourceSize; without it a single oversized file would
