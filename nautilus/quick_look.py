@@ -29,7 +29,7 @@ class QuickLookExtension(GObject.GObject, Nautilus.MenuProvider):
 
     def _menu_item(self, path):
         item = Nautilus.MenuItem(
-            name="AndreCondeQuickLook::quick_look",
+            name="SaironsQuickArchy::quick_look",
             label="Quick Look",
             tip="Preview this item in Omarchy Quick Look (or press Space)",
         )

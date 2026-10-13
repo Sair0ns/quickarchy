@@ -63,8 +63,11 @@ it refused. The line clears itself after a few seconds.
 
 ## Install
 
+Fork personale (`sairons.quickarchy`) di [andreconde21/omarchy-quick-look](https://github.com/andreconde21/omarchy-quick-look):
+aggiunge la stampa (P / Ctrl+P) e tre correzioni descritte in fondo.
+Si installa dal clone locale:
 ```bash
-omarchy plugin add https://github.com/andreconde21/omarchy-quick-look.git --enable --yes
+omarchy plugin add /home/sairons/Work/omarchy-quick-look --enable --yes
 ```
 
 Then register the Space-key bridge:
