@@ -56,6 +56,10 @@ La scheda riporta cosa ha risposto CUPS: `Sent to <stampante>` se è andata, opp
 ## Requisiti
 
 - Omarchy 4 / Quattro con supporto ai plugin di Quickshell
+- Un file manager che parli il protocollo delle anteprime di GNOME per il tasto Space: GNOME Files
+  (Nautilus) e [Omanta](https://github.com/28allday/omanta) funzionano entrambi — verificato su Omarchy
+  Mac con Omanta 0.1.27 compilato dal sorgente. Con altri file manager la scheda si apre ancora da
+  riga di comando (`omarchy-shell sairons.quickarchy show <file>`), ma il tasto Space non la raggiunge.
 - `python3` con PyGObject (`python-gobject`) — serve al ponte per il tasto Space
 - `file` — obbligatorio; senza, niente viene classificato e ogni file finisce su "nessuna anteprima"
 - `imagemagick` — **obbligatorio per le immagini**: misura un'immagine prima di decodificarla, quindi senza di lui le immagini vengono rifiutate anziché mostrate

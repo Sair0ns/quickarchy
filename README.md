@@ -65,6 +65,10 @@ Press **P** (or Ctrl+P) inside the preview: the file goes to the **CUPS default 
 ## Requirements
 
 - Omarchy 4 (Quattro) with Quickshell plugin support
+- A file manager that speaks the GNOME previewer protocol for the Space key: GNOME Files (Nautilus)
+  and [Omanta](https://github.com/28allday/omanta) both work — verified on Omarchy Mac with Omanta
+  0.1.27 built from source. With any other file manager the card still opens from the command line
+  (`omarchy-shell sairons.quickarchy show <file>`), but Space will not reach it.
 - `python3` with PyGObject (`python-gobject`) — required for the Space-key bridge
 - `file` — required; without it nothing is classified and every file falls back to "no preview"
 - `imagemagick` — **required for image previews**: it is what measures an image before decoding it, so without it images are refused rather than shown
