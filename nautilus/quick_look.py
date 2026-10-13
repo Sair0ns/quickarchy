@@ -11,7 +11,7 @@ import subprocess
 
 from gi.repository import GObject, Nautilus
 
-IPC_TARGET = "andreconde.quick-look"
+IPC_TARGET = "sairons.quickarchy"
 
 
 class QuickLookExtension(GObject.GObject, Nautilus.MenuProvider):

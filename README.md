@@ -28,7 +28,7 @@ Ways in:
 
 - **Space** on a selected file in Files
 - **Right-click → Quick Look** (a Nautilus extension, for discoverability)
-- `omarchy-shell andreconde.quick-look show /path/to/file`
+- `omarchy-shell sairons.quickarchy show /path/to/file`
 
 Inside the preview: `Space`, `Esc` or `Q` dismiss, `Enter` opens the file in its default application, `P` (or `Ctrl+P`) prints it.
 
@@ -48,7 +48,7 @@ it refused. The line clears itself after a few seconds.
 - Print to a specific printer without touching the default:
   `bin/quick-look-print <file> --printer <name>`
 - From a keybinding or a script:
-  `omarchy-shell andreconde.quick-look printFile /path/to/file`
+  `omarchy-shell sairons.quickarchy printFile /path/to/file`
   (and `printResult` for the last outcome).
 
 ## Requirements
@@ -74,7 +74,7 @@ mkdir -p ~/.local/share/dbus-1/services
 cat > ~/.local/share/dbus-1/services/org.gnome.NautilusPreviewer.service <<EOF
 [D-BUS Service]
 Name=org.gnome.NautilusPreviewer
-Exec=$HOME/.config/omarchy/plugins/andreconde.quick-look/bin/quick-look-previewer
+Exec=$HOME/.config/omarchy/plugins/sairons.quickarchy/bin/quick-look-previewer
 EOF
 nautilus -q
 ```
@@ -83,7 +83,7 @@ Optionally add the right-click entry as well:
 
 ```bash
 mkdir -p ~/.local/share/nautilus-python/extensions
-cp ~/.config/omarchy/plugins/andreconde.quick-look/nautilus/quick_look.py \
+cp ~/.config/omarchy/plugins/sairons.quickarchy/nautilus/quick_look.py \
    ~/.local/share/nautilus-python/extensions/
 nautilus -q
 ```
@@ -100,7 +100,7 @@ To hand Space back to GNOME's own previewer (sushi), delete the `.service` file 
 ## Remove
 
 ```bash
-omarchy plugin remove andreconde.quick-look --yes
+omarchy plugin remove sairons.quickarchy --yes
 ```
 
 Then hand the Space key back to GNOME's own previewer (sushi) and drop the render cache:

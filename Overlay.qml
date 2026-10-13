@@ -35,7 +35,7 @@ Item {
   // are used as-is when present.
   readonly property string pluginDir: {
     if (manifest && manifest.__sourceDir) return String(manifest.__sourceDir)
-    var id = manifest && manifest.id ? String(manifest.id) : "andreconde.quick-look"
+    var id = manifest && manifest.id ? String(manifest.id) : "sairons.quickarchy"
     var cfg = String(Quickshell.env("XDG_CONFIG_HOME") || "")
     if (cfg === "") cfg = String(Quickshell.env("HOME") || "") + "/.config"
     return cfg + "/omarchy/plugins/" + id
@@ -82,7 +82,7 @@ Item {
     return /^(https?|mailto):/i.test(String(link || "").trim())
   }
 
-  // Entry point used by `omarchy-shell shell summon andreconde.quick-look`.
+  // Entry point used by `omarchy-shell shell summon sairons.quickarchy`.
   function open(payload) {
     var args = {}
     try { args = payload ? JSON.parse(String(payload)) : {} } catch (e) { args = {} }
@@ -110,7 +110,7 @@ Item {
       info = {
         kind: "missing",
         name: "Quick Look",
-        error: "No file selected.\n\nSelect a file in Files and press Space, or run:\nomarchy-shell shell summon andreconde.quick-look '{\"path\":\"/etc/hostname\"}'"
+        error: "No file selected.\n\nSelect a file in Files and press Space, or run:\nomarchy-shell shell summon sairons.quickarchy '{\"path\":\"/etc/hostname\"}'"
       }
       loading = false
       opened = true
@@ -249,7 +249,7 @@ Item {
   }
 
   IpcHandler {
-    target: "andreconde.quick-look"
+    target: "sairons.quickarchy"
 
     function show(path: string): string {
       root.openFile(path)
@@ -289,7 +289,7 @@ Item {
     color: "transparent"
     exclusionMode: ExclusionMode.Ignore
     WlrLayershell.layer: WlrLayer.Overlay
-    WlrLayershell.namespace: "andreconde-quick-look"
+    WlrLayershell.namespace: "sairons-quickarchy"
     WlrLayershell.keyboardFocus: root.opened ? WlrKeyboardFocus.Exclusive : WlrKeyboardFocus.None
 
     Rectangle {
