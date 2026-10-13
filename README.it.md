@@ -118,7 +118,12 @@ pkill -f quick-look-previewer      # libera il nome; la prossima pressione lo ri
 2. **Il plugin trova i propri script** — l'originale si fidava di `manifest.__sourceDir`, un campo che la shell **cancella** dai manifest dei plugin di terze parti: ogni anteprima falliva con "Preview helper not found". Ora il percorso si ricava dall'identificativo pubblico del plugin (`$XDG_CONFIG_HOME/omarchy/plugins/<id>`), con `__sourceDir` come prima scelta quando il campo c'è.
 3. **Il piè di pagina sta dentro la scheda** — l'altezza dell'area dell'immagine veniva calcolata sottraendo `footer.implicitHeight`, che è 0 perché il piè di pagina ha un'altezza esplicita: il corpo restava 28 px troppo alto e il piè di pagina (nome file + Print/Open) finiva oltre il bordo inferiore. Ora si sottraggono le altezze reali.
 4. **Nome** — identificativo `sairons.quickarchy`, nome visibile "QuickArchy", namespace del layer Wayland e voce del menu di Nautilus allineati.
-5. **Documentazione** — questo README in italiano.
+5. **L'anteprima non si riapre più con la sola selezione.** Nautilus tiene in cache la proprietà
+   `Visible` del suo proxy e su quella decide se seguire la selezione: un ponte che non la aggiorna
+   gli fa credere che l'anteprima sia aperta per sempre, così bastava selezionare un file per farla
+   ripartire. Questo fork emette `PropertiesChanged` su apertura, chiusura e una volta all'avvio:
+   l'anteprima parte con Space e segue la selezione solo mentre è a schermo.
+6. **Documentazione** — questo README in italiano.
 
 ## Disinstallazione
 

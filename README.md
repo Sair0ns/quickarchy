@@ -129,7 +129,13 @@ Then re-run the `dbus-send … ReloadConfig` line above.
 2. **The plugin can find its own scripts** — the original built its paths from `manifest.__sourceDir`, a field the shell **deletes** from third-party manifests (`publicPluginManifest` in `shell.qml`). Every preview therefore failed with "Preview helper not found". This fork derives the directory from the public plugin id (`$XDG_CONFIG_HOME/omarchy/plugins/<id>`) and still prefers `__sourceDir` when a host provides it.
 3. **The footer sits inside the card** — the body height was computed by subtracting `footer.implicitHeight`, which is 0 because the footer has an explicit height. The body stayed 28 px too tall, so the footer (file name + Print/Open) was laid out past the card's bottom edge. This fork subtracts the siblings' real heights.
 4. **Renamed** — `sairons.quickarchy` / "QuickArchy", with the Wayland layer namespace and the Nautilus menu entry aligned.
-5. **Documentation** — this README, plus an Italian copy in [README.it.md](README.it.md).
+5. **The preview no longer re-opens on a plain selection.** Nautilus caches the `Visible`
+   property of its previewer proxy and gates its follow-the-selection path on it; a bridge that
+   never updates that property leaves Nautilus believing the preview is open for good, so merely
+   selecting a file re-opened it. This fork emits `PropertiesChanged` for `Visible` on show, on
+   close and once at startup, so the preview opens on Space and follows the selection only while
+   it is on screen.
+6. **Documentation** — this README, plus an Italian copy in [README.it.md](README.it.md).
 
 ## Uninstall
 
