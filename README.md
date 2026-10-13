@@ -73,7 +73,7 @@ Press **P** (or Ctrl+P) inside the preview: the file goes to the **CUPS default 
 ## Install
 
 ```bash
-omarchy plugin add https://github.com/Sairons/quickarchy --enable --yes
+omarchy plugin add https://github.com/Sair0ns/quickarchy --enable --yes
 ```
 
 Then register the Space-key bridge:

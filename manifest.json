@@ -3,7 +3,7 @@
   "id": "sairons.quickarchy",
   "name": "QuickArchy",
   "version": "1.0.0",
-  "author": "Sairons",
+  "author": "Sair0ns",
   "license": "MIT",
   "description": "macOS-style file preview for the Omarchy shell: select a file in Files, press Space and see it rendered — images, PDF pages, video stills, cover art, code, markdown, folders and archives — then print it (P / Ctrl+P) straight to the CUPS default printer.",
   "kinds": [
@@ -13,5 +13,5 @@
     "overlay": "Overlay.qml"
   },
   "keepLoaded": true,
-  "homepage": "https://github.com/Sairons/quickarchy"
+  "homepage": "https://github.com/Sair0ns/quickarchy"
 }
