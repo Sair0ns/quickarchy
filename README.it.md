@@ -4,6 +4,8 @@ Anteprima file in stile macOS per Omarchy. Selezioni un file in Files, premi **S
 
 Fork personale (`sairons.quickarchy`) di [andreconde21/omarchy-quick-look](https://github.com/andreconde21/omarchy-quick-look), con la stampa e tre correzioni descritte in fondo.
 
+Sviluppato e verificato su **Omarchy Mac** (Apple Silicon, aarch64 / Asahi) — dove i difetti dell'originale sono stati riprodotti — e funzionante anche su x86_64.
+
 ![Illustrazione neon del tema Omarchy](hero.png)
 
 ![QuickArchy che mostra quell'immagine: riempie la scheda, con dimensioni, formato e spazio colore nell'intestazione e i pulsanti Print / Open nel piè di pagina](preview.png)
