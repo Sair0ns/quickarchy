@@ -2,7 +2,7 @@
 
 A macOS-style file previewer for the Omarchy shell — select a file in Files, press **Space**, and the file appears, rendered. Press **P** and it goes to your printer.
 
-A fork of [andreconde21/omarchy-quick-look](https://github.com/andreconde21/omarchy-quick-look) that adds printing and fixes two defects that stopped the original from working at all on Omarchy 4.
+A fork of [andreconde21/omarchy-quick-look](https://github.com/andreconde21/omarchy-quick-look) that adds printing and fixes the defects listed at the bottom — two of which stopped the original from working at all on Omarchy 4.
 
 Developed and verified on **Omarchy Mac** (Apple Silicon, aarch64 / Asahi) — where the upstream defects were reproduced — and running on x86_64 as well.
 

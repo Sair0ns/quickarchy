@@ -2,7 +2,7 @@
 
 Anteprima file in stile macOS per Omarchy. Selezioni un file in Files, premi **Space**, e lo vedi: disegnato, non descritto. Premi Space di nuovo per chiudere.
 
-Fork personale (`sairons.quickarchy`) di [andreconde21/omarchy-quick-look](https://github.com/andreconde21/omarchy-quick-look), con la stampa e tre correzioni descritte in fondo.
+Fork personale (`sairons.quickarchy`) di [andreconde21/omarchy-quick-look](https://github.com/andreconde21/omarchy-quick-look), con la stampa e le correzioni descritte in fondo.
 
 Sviluppato e verificato su **Omarchy Mac** (Apple Silicon, aarch64 / Asahi) — dove i difetti dell'originale sono stati riprodotti — e funzionante anche su x86_64.
 
