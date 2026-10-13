@@ -4,7 +4,9 @@ A macOS-style file previewer for the Omarchy shell — select a file in Files, p
 
 A fork of [andreconde21/omarchy-quick-look](https://github.com/andreconde21/omarchy-quick-look) that adds printing and fixes two defects that stopped the original from working at all on Omarchy 4.
 
-![QuickArchy previewing an image](preview.png)
+![Neon Omarchy artwork, drawn by the shell theme](hero.png)
+
+![QuickArchy previewing that image: it fills the card, with its dimensions, format and colour space in the header and the Print / Open buttons in the footer](preview.png)
 
 ## What it does
 
