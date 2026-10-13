@@ -11,6 +11,16 @@ Both the current `org.gnome.NautilusPreviewer2` interface and the older
 `org.gnome.NautilusPreviewer` interface are exported, because Nautilus falls
 back to v1 when the v2 proxy cannot be created.
 
+The `Visible` property is not decoration: Nautilus caches it and gates its
+"follow the selection" path on it (`nautilus_previewer_is_visible()` in
+nautilus-previewer.c reads the cached property, and
+`nautilus_files_view_preview_update()` returns early while it is false). A
+bridge that never updates it leaves Nautilus believing the preview is open
+forever, so a plain selection change re-opens the preview. This bridge
+therefore emits `PropertiesChanged` for `Visible`: once after claiming the
+name, whenever it shows or closes a file, and from a short poll that notices
+the user closing the card from inside the shell.
+
 Removing ~/.local/share/dbus-1/services/org.gnome.NautilusPreviewer.service
 hands the Space key straight back to sushi.
 """
@@ -29,9 +39,16 @@ BUS_NAME = "org.gnome.NautilusPreviewer"
 OBJECT_PATH = "/org/gnome/NautilusPreviewer"
 IPC_TARGET = "sairons.quickarchy"
 
+IFACES = ("org.gnome.NautilusPreviewer2", "org.gnome.NautilusPreviewer")
+PROPERTIES_IFACE = "org.freedesktop.DBus.Properties"
+
 # Nothing has asked us to preview anything for this long, so the service exits
 # and lets D-Bus activate it again on the next Space press.
 IDLE_TIMEOUT_SECONDS = 900
+
+# How often to check whether the card is still on screen, so that closing it
+# from inside the shell (Space or Escape in the card) reaches Nautilus.
+VISIBLE_POLL_MS = 400
 
 NODE_XML = """
 <node>
@@ -90,9 +107,12 @@ def omarchy_shell(*args):
 class Previewer:
     def __init__(self, loop):
         self.loop = loop
+        self.connection = None
         self.parent_handle = ""
         self.current_path = None
+        self.visible_cached = None
         self._idle_source = None
+        self._poll_source = None
         self._reset_idle()
 
     # -- lifetime ---------------------------------------------------------
@@ -111,6 +131,51 @@ class Previewer:
             return False
         self._reset_idle()
         return False
+
+    # -- the Visible property ---------------------------------------------
+
+    def _emit_visible(self, value):
+        if self.connection is None:
+            return
+        for iface in IFACES:
+            try:
+                self.connection.emit_signal(
+                    None, OBJECT_PATH, PROPERTIES_IFACE, "PropertiesChanged",
+                    GLib.Variant("(sa{sv}as)",
+                                 (iface, {"Visible": GLib.Variant("b", value)}, [])),
+                )
+            except Exception as exc:  # bus gone: nothing left to keep in sync
+                sys.stderr.write("quick-look-previewer: %s\n" % exc)
+
+    def set_visible(self, value):
+        """Update the cached state Nautilus reads, telling it when it changes."""
+        value = bool(value)
+        if value == self.visible_cached:
+            return
+        self.visible_cached = value
+        self._emit_visible(value)
+        if value:
+            self._start_poll()
+        else:
+            self._stop_poll()
+
+    def _start_poll(self):
+        if self._poll_source is None:
+            self._poll_source = GLib.timeout_add(VISIBLE_POLL_MS, self._poll_visible)
+
+    def _stop_poll(self):
+        if self._poll_source is not None:
+            GLib.source_remove(self._poll_source)
+            self._poll_source = None
+
+    def _poll_visible(self):
+        if not self.visible():
+            self._poll_source = None
+            self.current_path = None
+            self._reset_idle()
+            self.set_visible(False)
+            return False
+        return True
 
     # -- state ------------------------------------------------------------
 
@@ -137,10 +202,14 @@ class Previewer:
             # The overlay may not be mounted yet; summon() loads it first.
             omarchy_shell("shell", "summon", IPC_TARGET, json.dumps({"path": path}))
 
+        # Report what actually happened, not what we asked for.
+        self.set_visible(self.visible())
+
     def close(self):
         self._reset_idle()
         self.current_path = None
         omarchy_shell(IPC_TARGET, "dismiss")
+        self.set_visible(False)
 
 
 def make_handlers(previewer):
@@ -181,10 +250,14 @@ def main():
     registered = []
 
     def on_bus_acquired(connection, _name):
+        previewer.connection = connection
         for interface in node.interfaces:
             registered.append(connection.register_object(
                 OBJECT_PATH, interface, handle_call, handle_get, None,
             ))
+        # Nautilus caches Visible for the life of its proxy: state it once now,
+        # so a stale "true" left by a previous bridge cannot survive.
+        previewer.set_visible(previewer.visible())
 
     def on_name_lost(_connection, _name):
         # Something else (most likely sushi) holds the name. Exiting keeps the
