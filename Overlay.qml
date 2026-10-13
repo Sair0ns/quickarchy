@@ -335,6 +335,7 @@ Item {
           MouseArea { anchors.fill: parent }
 
           Column {
+            id: col
             anchors.fill: parent
             anchors.margins: Style.space(16)
             spacing: Style.space(10)
@@ -342,6 +343,7 @@ Item {
             // ------------------------------------------------------- header
 
             Item {
+              id: headerItem
               width: parent.width
               height: headerText.implicitHeight
 
@@ -400,6 +402,7 @@ Item {
             }
 
             PanelSeparator {
+              id: separator
               width: parent.width
               foreground: Commons.Color.foreground
             }
@@ -409,8 +412,12 @@ Item {
             Item {
               id: body
               width: parent.width
+              // The footer carries an explicit height, so its implicitHeight is 0:
+              // subtracting that left the body 28px too tall, which pushed the
+              // footer (and its buttons) past the card's bottom edge. Use the
+              // actual heights of the siblings that are already laid out.
               height: parent.height - parent.spacing * 3
-                - headerText.implicitHeight - Style.space(1) - footer.implicitHeight
+                - headerItem.height - separator.height - footer.height
 
               // Single image: fill the pane, never upscale past 1:1 so small
               // icons don't turn into blurry posters.
