@@ -1,5 +1,5 @@
 #!/usr/bin/env python3
-"""Inspect one file and describe how Quick Look should present it.
+"""Inspect one file and describe how QuickArchy should present it.
 
 Prints a single JSON object on stdout. The QML overlay only renders what it
 finds here, so every format decision (which tool renders a PDF page, how a

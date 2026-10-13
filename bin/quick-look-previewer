@@ -1,5 +1,5 @@
 #!/usr/bin/env python3
-"""Expose Omarchy Quick Look as the GNOME file previewer.
+"""Expose Omarchy QuickArchy as the GNOME file previewer.
 
 Nautilus does not let extensions bind keys. What it does instead is D-Bus
 activate the well-known name `org.gnome.NautilusPreviewer` when the user

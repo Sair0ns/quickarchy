@@ -52,7 +52,7 @@ Item {
   readonly property int maxDecodeEdge: 2600
 
   readonly property string kind: String(info.kind || "")
-  readonly property string displayName: String(info.name || "Quick Look")
+  readonly property string displayName: String(info.name || "QuickArchy")
   readonly property var previewImages: info.images instanceof Array ? info.images : []
   readonly property var previewEntries: info.entries instanceof Array ? info.entries : []
 
@@ -109,7 +109,7 @@ Item {
     if (target === "") {
       info = {
         kind: "missing",
-        name: "Quick Look",
+        name: "QuickArchy",
         error: "No file selected.\n\nSelect a file in Files and press Space, or run:\nomarchy-shell shell summon sairons.quickarchy '{\"path\":\"/etc/hostname\"}'"
       }
       loading = false

@@ -1,4 +1,4 @@
-"""Nautilus context-menu entry for Omarchy Quick Look.
+"""Nautilus context-menu entry for Omarchy QuickArchy.
 
 The primary way in is the Space key, which Nautilus routes over D-Bus to
 whichever process owns org.gnome.NautilusPreviewer (see the plugin's
@@ -30,8 +30,8 @@ class QuickLookExtension(GObject.GObject, Nautilus.MenuProvider):
     def _menu_item(self, path):
         item = Nautilus.MenuItem(
             name="SaironsQuickArchy::quick_look",
-            label="Quick Look",
-            tip="Preview this item in Omarchy Quick Look (or press Space)",
+            label="QuickArchy",
+            tip="Preview this item in Omarchy QuickArchy (or press Space)",
         )
         item.connect("activate", self._preview, path)
         return [item]
